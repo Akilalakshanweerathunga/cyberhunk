@@ -1,49 +1,71 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import InsightCard from '../components/InsightCard';
+import { Pie } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 export default function Dashboard() {
-  const [insights, setInsights] = useState([]);     // Always an array
-  const [error, setError] = useState(null);         // Optional: for better UX
-  const [loading, setLoading] = useState(true);     // Optional: loading state
+  const [insights, setInsights] = useState([]);
+  const [sentimentCounts, setSentimentCounts] = useState({
+    positive: 0,
+    negative: 0,
+    neutral: 0,
+  });
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      localStorage.setItem('fb_token', token);
-    }
-
-    const fbToken = localStorage.getItem('fb_token');
-    if (!fbToken) {
-      setError('Missing Facebook token');
-      setLoading(false);
-      return;
-    }
+    const token = localStorage.getItem('fb_token');
 
     axios
-      .get(`http://localhost:8000/insights/analyze?token=${fbToken}`)
-      .then(res => {
-        const result = res.data.insights || [];     // ✅ ensure it's an array
-        setInsights(result);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching insights:", err);
-        setError("Failed to load insights.");
-        setLoading(false);
+      .get(`http://localhost:8000/insights/analyze?token=${token}&method=ml`)
+      .then((res) => {
+        setInsights(res.data.insights);
+
+        // Count labels
+        const counts = { positive: 0, negative: 0, neutral: 0 };
+        res.data.insights.forEach((item) => {
+          const label = item.label;
+          if (counts[label] !== undefined) {
+            counts[label]++;
+          }
+        });
+        setSentimentCounts(counts);
       });
   }, []);
 
+  const chartData = {
+    labels: ['Positive', 'Negative', 'Neutral'],
+    datasets: [
+      {
+        label: '# of Messages',
+        data: [
+          sentimentCounts.positive,
+          sentimentCounts.negative,
+          sentimentCounts.neutral,
+        ],
+        backgroundColor: ['#4caf50', '#f44336', '#ffc107'],
+        borderWidth: 1,
+      },
+    ],
+  };
+
   return (
     <div style={{ padding: 20 }}>
-      <h2>Your Digital Responsibility Overview </h2>
+      <h2>Your Digital Responsibility Overview</h2>
+      <p>This dashboard summarizes your behavior on Facebook using AI-powered insights.</p>
 
-      {loading && <p>Loading insights...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <div style={{ maxWidth: 400, margin: '20px auto' }}>
+        <Pie data={chartData} />
+      </div>
 
-      {(insights || []).map((item, index) => (
-        <InsightCard key={index} message={item.message} score={item.score?.compound} />
+      {insights.map((item, index) => (
+        <InsightCard key={index} message={item.original} score={item.label} />
       ))}
     </div>
   );

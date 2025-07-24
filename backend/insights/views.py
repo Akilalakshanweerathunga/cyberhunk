@@ -1,23 +1,36 @@
-# insights/views.py
 from django.http import JsonResponse
-import logging
+from .services import analyze_text
+import requests
 
-logger = logging.getLogger(__name__)
-
-def analyze(request):
+def analyze_facebook(request):
     token = request.GET.get('token')
+    method = request.GET.get('method', 'nltk')  # ?method=ml for ML-based analysis
 
-    logger.debug(f"Received token: {token}")
+    if not token:
+        return JsonResponse({"error": "Token missing"}, status=400)
 
-    if not token or token == "None":
-        return JsonResponse({'error': 'Token is required'}, status=400)
+    insights = []
+    next_url = f"https://graph.facebook.com/v19.0/me/posts?fields=message,comments&limit=10&access_token={token}"
 
-    # Simulate analysis logic (replace with real processing)
-    result = {
-        'message': 'Analysis successful',
-        'token': token,
-        'score': 87,
-        'risk': 'low'
-    }
+    while next_url:
+        try:
+            res = requests.get(next_url).json()
+            posts = res.get("data", [])
 
-    return JsonResponse(result, status=200)
+            for post in posts:
+                if 'message' in post:
+                    insights.append(analyze_text(post['message'], method=method))
+
+                # Handle comments in each post
+                comments = post.get("comments", {}).get("data", [])
+                for comment in comments:
+                    if 'message' in comment:
+                        insights.append(analyze_text(comment['message'], method=method))
+
+            # Facebook pagination
+            next_url = res.get("paging", {}).get("next")
+
+        except Exception as e:
+            return JsonResponse({"error": "Failed to fetch or process Facebook data", "details": str(e)}, status=500)
+
+    return JsonResponse({"insights": insights})
